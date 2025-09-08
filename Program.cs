@@ -4,6 +4,18 @@ using PizzaStore.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Allow localhost:5173 (Svelte dev server)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSvelte",
+    policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 var connectionString = builder.Configuration.GetConnectionString("Pizzas") ?? "Data Source=Pizzas.db";
 builder.Services.AddSqlite<PizzaDb>(connectionString);
 
@@ -18,6 +30,15 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenLocalhost(5000); // http
+    options.ListenLocalhost(5001, listenOptions =>
+    {
+        listenOptions.UseHttps();
+    });
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -29,28 +50,33 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
 app.MapGet("/pizzas", async (PizzaDb db) => await db.Pizzas.ToListAsync());
 
-app.MapGet("/pizza/{id}", async (PizzaDb db, int id) => await db.Pizzas.FindAsync(id));
+app.MapGet("/pizzas/{id}", async (PizzaDb db, int id) => await db.Pizzas.FindAsync(id));
 
-app.MapPost("/pizza", async (PizzaDb db, Pizza pizza) =>
+app.MapPost("/pizzas", async (PizzaDb db, Pizza pizza) =>
 {
     await db.Pizzas.AddAsync(pizza);
     await db.SaveChangesAsync();
     return Results.Created($"/pizza/{pizza.Id}", pizza);
 });
 
-app.MapPut("/pizza/{id}", async (PizzaDb db, Pizza updatePizza, int id) =>
+app.MapPut("/pizzas/{id}", async (PizzaDb db, Pizza updatePizza, int id) =>
 {
     var pizza = await db.Pizzas.FindAsync(id);
     if (pizza is null) return Results.NotFound();
     pizza.Name = updatePizza.Name;
     pizza.Description = updatePizza.Description;
     await db.SaveChangesAsync();
-    return Results.NoContent();
+    return Results.Ok(pizza);
 });
 
-app.MapDelete("/pizza/{id}", async (PizzaDb db, int id) =>
+app.MapDelete("/pizzas/{id}", async (PizzaDb db, int id) =>
 {
     var pizza = await db.Pizzas.FindAsync(id);
     if (pizza is null)
@@ -61,5 +87,7 @@ app.MapDelete("/pizza/{id}", async (PizzaDb db, int id) =>
     await db.SaveChangesAsync();
     return Results.Ok();
 });
+
+app.UseCors("AllowSvelte");
 
 app.Run();
