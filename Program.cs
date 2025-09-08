@@ -1,93 +1,83 @@
-using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
-using PizzaStore.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Allow localhost:5173 (Svelte dev server)
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowSvelte",
-    policy =>
-    {
-        policy.WithOrigins("http://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
-
-var connectionString = builder.Configuration.GetConnectionString("Pizzas") ?? "Data Source=Pizzas.db";
-builder.Services.AddSqlite<PizzaDb>(connectionString);
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "PizzaStore API",
-        Description = "Making the Pizzas you love!",
-        Version = "v1"
-    });
-});
+// EF Core with SQLite
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite("Data Source=pizzas.db"));
 
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenLocalhost(5000); // http
-    options.ListenLocalhost(5001, listenOptions =>
+    options.ListenLocalhost(5001, ListenOptions =>
     {
-        listenOptions.UseHttps();
+        ListenOptions.UseHttps(); // https with dev cert 
     });
 });
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+app.UseHttpsRedirection();
+
+// Serve static files from wwwroot (Svelte build)
+app.UseStaticFiles();
+
+// SPA fallback → if no API route matches, serve index.html
+app.MapFallbackToFile("index.html");
+
+// API endpoints
+app.MapGet("/pizzas", async (AppDbContext db) =>
+    await db.Pizzas.ToListAsync());
+
+app.MapGet("/pizzas/{id}", async (int id, AppDbContext db) =>
+    await db.Pizzas.FindAsync(id) is Pizza pizza
+        ? Results.Ok(pizza)
+        : Results.NotFound());
+
+app.MapPost("/pizzas", async (Pizza pizza, AppDbContext db) =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "PizzaStore API v1");
-    });
-}
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
-
-app.MapGet("/pizzas", async (PizzaDb db) => await db.Pizzas.ToListAsync());
-
-app.MapGet("/pizzas/{id}", async (PizzaDb db, int id) => await db.Pizzas.FindAsync(id));
-
-app.MapPost("/pizzas", async (PizzaDb db, Pizza pizza) =>
-{
-    await db.Pizzas.AddAsync(pizza);
+    db.Pizzas.Add(pizza);
     await db.SaveChangesAsync();
-    return Results.Created($"/pizza/{pizza.Id}", pizza);
+    return Results.Created($"/pizzas/{pizza.Id}", pizza);
 });
 
-app.MapPut("/pizzas/{id}", async (PizzaDb db, Pizza updatePizza, int id) =>
+app.MapPut("/pizzas/{id}", async (int id, Pizza update, AppDbContext db) =>
 {
     var pizza = await db.Pizzas.FindAsync(id);
     if (pizza is null) return Results.NotFound();
-    pizza.Name = updatePizza.Name;
-    pizza.Description = updatePizza.Description;
+
+    pizza.Name = update.Name;
+    pizza.Description = update.Description;
     await db.SaveChangesAsync();
-    return Results.Ok(pizza);
+
+    return Results.Ok(pizza); // return JSON, not 204
 });
 
-app.MapDelete("/pizzas/{id}", async (PizzaDb db, int id) =>
+app.MapDelete("/pizzas/{id}", async (int id, AppDbContext db) =>
 {
     var pizza = await db.Pizzas.FindAsync(id);
-    if (pizza is null)
-    {
-        return Results.NotFound();
-    }
+    if (pizza is null) return Results.NotFound();
+
     db.Pizzas.Remove(pizza);
     await db.SaveChangesAsync();
-    return Results.Ok();
+
+    return Results.NoContent();
 });
 
-app.UseCors("AllowSvelte");
-
 app.Run();
+
+
+// Pizza model + EF context
+public class Pizza
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+    public DbSet<Pizza> Pizzas => Set<Pizza>();
+}

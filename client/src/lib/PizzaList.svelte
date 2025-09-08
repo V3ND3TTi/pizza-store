@@ -14,7 +14,7 @@
   let editingId: number | null = null;
 
   onMount(async () => {
-    const res = await fetch("https://localhost:5001/pizzas");
+    const res = await fetch("/pizzas");
     pizzas = await res.json();
   });
 
@@ -25,7 +25,7 @@
   async function addPizza() {
     if (!newPizzaName.trim() || !newPizzaDescription.trim()) return;
 
-    const res = await fetch("https://localhost:5001/pizzas", {
+    const res = await fetch("/pizzas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -43,7 +43,7 @@
   }
 
   async function updatePizza(pizza: Pizza) {
-    const res = await fetch(`https://localhost:5001/pizzas/${pizza.id}`, {
+    const res = await fetch(`/pizzas/${pizza.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pizza),
@@ -57,7 +57,7 @@
   }
 
   async function deletePizza(id: number) {
-    const res = await fetch(`https://localhost:5001/pizzas/${id}`, {
+    const res = await fetch(`/pizzas/${id}`, {
       method: "DELETE",
     });
     if (res.ok) {
