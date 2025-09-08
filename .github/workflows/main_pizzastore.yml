@@ -1,11 +1,21 @@
+name: Build and deploy ASP.Net Core + Svelte app to Azure Web App - PizzaStore
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      # 👇 Add this block before .NET build
+      # 👇 Install Node.js and build frontend
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -16,21 +26,50 @@ jobs:
           cd client
           npm install
           npm run build
+          cd ..
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+      # 👇 Build .NET backend + package frontend in wwwroot
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '9.x'
 
-      - name: Restore
-        run: dotnet restore
+      - name: Build with dotnet
+        run: dotnet build --configuration Release
 
-      - name: Build and publish
-        run: dotnet publish -c Release -o ./publish
+      - name: dotnet publish
+        run: dotnet publish -c Release -o ${{env.DOTNET_ROOT}}/myapp
 
-      - name: Deploy to Azure WebApp
-        uses: azure/webapps-deploy@v2
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
         with:
-          app-name: PizzaStore   # 👈 replace with your App Service name
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
-          package: ./publish
+          name: fullstack-app
+          path: ${{env.DOTNET_ROOT}}/myapp
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: fullstack-app
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1B3A36BAE5674A9292C54EE91FA93F2E }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A5BD4505F96745FEB6FD3B6B0DA5F8A5 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_90DC0FFE0F84452BBF6DA0025CAD75FC }}
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'PizzaStore'
+          slot-name: 'Production'
+          package: .
